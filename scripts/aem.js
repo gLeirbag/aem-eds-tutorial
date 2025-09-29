@@ -10,22 +10,36 @@
  * governing permissions and limitations under the License.
  */
 
+/** Função relacionada a Monitoramento de Usuário */
 /* eslint-env browser */
 function sampleRUM(checkpoint, data) {
+  /** Função que calcula quanto tempo se passou até ser chamada */
   // eslint-disable-next-line max-len
   const timeShift = () => (window.performance ? window.performance.now() : Date.now() - window.hlx.rum.firstReadTime);
   try {
+    // ------- Seção de criação de estrutura de dados para monitoramento de usuário
+    // Se não existir, crie o objeto global hlx -> Helix, antigo nome do EDS.
     window.hlx = window.hlx || {};
     if (!window.hlx.rum || !window.hlx.rum.collector) {
-      sampleRUM.enhance = () => {};
-      const param = new URLSearchParams(window.location.search).get('rum');
+      // RUM deve significar Real User Monitoring (Monitoramento de Usuário Real)
+      sampleRUM.enhance = () => { };
+      const param = new URLSearchParams(window.location.search).get('rum'); // Variável recebe o valor do parâmetro rum da URL
+      /* Se rum for "on", weight = 1,
+       se rum for "off" ou não existir,
+       E se a constante SAMPLE_PAGEVIEWS_AT_RATE for diferente de "high" ou "low" weight = 100,
+       se rum não existir e SAMPLE_PAGEVIEWS_AT_RATE for "high", weight = 10
+       se rum não existir e SAMPLE_PAGEVIEWS_AT_RATE for "low", weight = 1000 */
+      // O peso determina a frequência de amostragem dos usuários.
       const weight = (param === 'on' && 1)
         || (window.SAMPLE_PAGEVIEWS_AT_RATE === 'high' && 10)
         || (window.SAMPLE_PAGEVIEWS_AT_RATE === 'low' && 1000)
         || 100;
+      // De um ID para o usuário.
       const id = (window.hlx.rum && window.hlx.rum.id) || crypto.randomUUID().slice(-9);
+      // Aleatoriamente selecione se o usuário fará parte de um grupo de amostragem.
       const isSelected = (window.hlx.rum && window.hlx.rum.isSelected)
         || (param !== 'off' && Math.random() * weight < 1);
+      /** Dados do usuário */
       // eslint-disable-next-line object-curly-newline, max-len
       window.hlx.rum = {
         weight,
@@ -34,8 +48,11 @@ function sampleRUM(checkpoint, data) {
         firstReadTime: window.performance ? window.performance.timeOrigin : Date.now(),
         sampleRUM,
         queue: [],
+        /** Função para adicionar dados à fila de coleta. */
         collector: (...args) => window.hlx.rum.queue.push(args),
       };
+      // -------------- Seção para registros de erros
+      // Se selecionado, crie uma função para tratar erros.
       if (isSelected) {
         const dataFromErrorObj = (error) => {
           const errData = { source: 'undefined error' };
@@ -53,7 +70,7 @@ function sampleRUM(checkpoint, data) {
           }
           return errData;
         };
-
+        // Faça a função de tratamento de erros ouvir o evento "error" e "unhandledrejection".
         window.addEventListener('error', ({ error }) => {
           const errData = dataFromErrorObj(error);
           sampleRUM('error', errData);
@@ -69,9 +86,11 @@ function sampleRUM(checkpoint, data) {
           }
           sampleRUM('error', errData);
         });
-
+        // ----------
+        // Configuração da URL para onde os dados serão enviados.
         sampleRUM.baseURL = sampleRUM.baseURL || new URL(window.RUM_BASE || '/', new URL('https://rum.hlx.page'));
         sampleRUM.collectBaseURL = sampleRUM.collectBaseURL || sampleRUM.baseURL;
+        // Função para enviar os dados coletados.
         sampleRUM.sendPing = (ck, time, pingData = {}) => {
           // eslint-disable-next-line max-len, object-curly-newline
           const rumData = JSON.stringify({
@@ -98,6 +117,7 @@ function sampleRUM(checkpoint, data) {
         };
         sampleRUM.sendPing('top', timeShift());
 
+        // Chama externamente um script para melhorar os dados coletados.
         sampleRUM.enhance = () => {
           // only enhance once
           if (document.querySelector('script[src*="rum-enhancer"]')) return;
@@ -119,8 +139,10 @@ function sampleRUM(checkpoint, data) {
       }
     }
     if (window.hlx.rum && window.hlx.rum.isSelected && checkpoint) {
+      // Adiciona os dados à fila de coleta.
       window.hlx.rum.collector(checkpoint, data, timeShift());
     }
+    // Lança um evento "rum" com os dados coletados.
     document.dispatchEvent(new CustomEvent('rum', { detail: { checkpoint, data } }));
   } catch (error) {
     // something went awry
@@ -131,12 +153,19 @@ function sampleRUM(checkpoint, data) {
  * Setup block utils.
  */
 function setup() {
+  // Inicializa o objeto global do eds chamado hlx, se não existir. hlx é o antigo nome do EDS.
   window.hlx = window.hlx || {};
+  // Define algumas propriedades iniciais do objeto hlx.
   window.hlx.RUM_MASK_URL = 'full';
   window.hlx.RUM_MANUAL_ENHANCE = true;
+  // Caminho do arquivo script.js
   window.hlx.codeBasePath = '';
+  // Boolean que indica se o modo lighthouse está ativo.
   window.hlx.lighthouse = new URLSearchParams(window.location.search).get('lighthouse') === 'on';
 
+  // Seleciona o script através do elemento script que contém "/scripts/scripts.js" no atributo src.
+  // Esse elemento esta definido em head.html.
+  // Então use o caminho do script para definir o codeBasePath.
   const scriptEl = document.querySelector('script[src$="/scripts/scripts.js"]');
   if (scriptEl) {
     try {
@@ -149,12 +178,13 @@ function setup() {
 }
 
 /**
- * Auto initialization.
+ * Auto initialization. Tipo uma função main().
  */
-
 function init() {
+  // Setup das variáveis globais do EDS na propriedade hlx do window. Injeta o arquivo script.js
   setup();
   sampleRUM.collectBaseURL = window.origin;
+  // Inicia um sistema para monitoramento de usuário.
   sampleRUM();
 }
 
@@ -190,11 +220,17 @@ function toCamelCase(name) {
 // eslint-disable-next-line import/prefer-default-export
 function readBlockConfig(block) {
   const config = {};
+  // :scope -> seleciona o elemento atual
+  // :scope > div -> seleciona todas as divs filhas diretas do elemento atual.
+  // para cada div filha direta do elemento atual
   block.querySelectorAll(':scope > div').forEach((row) => {
+    // Se a div tiver filhos
     if (row.children) {
       const cols = [...row.children];
+      // Seleciona o segundo filho? Hardcoded?
       if (cols[1]) {
         const col = cols[1];
+        // Pega o texto do primeiro filho e ajusta para ficar em CamelCase.
         const name = toClassName(cols[0].textContent);
         let value = '';
         if (col.querySelector('a')) {
@@ -219,19 +255,27 @@ function readBlockConfig(block) {
             value = ps.map((p) => p.textContent);
           }
         } else value = row.children[1].textContent;
+        // O valor é o conteúdo do segundo filho. Como o conteúdo é tratado
+        // depende do tipo do conteúdo.
         config[name] = value;
       }
     }
   });
+  // retorna
+  // config = {
+  //   nome: valor,
+  // }
   return config;
 }
 
 /**
+ * Muito usado para carregar o css dos blocos de forma dinâmica.
  * Loads a CSS file.
  * @param {string} href URL to the CSS file
  */
 async function loadCSS(href) {
   return new Promise((resolve, reject) => {
+    // Se não existir um link no head com o href igual ao href passado como parâmetro
     if (!document.querySelector(`head > link[href="${href}"]`)) {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
@@ -246,6 +290,7 @@ async function loadCSS(href) {
 }
 
 /**
+ * Injeta um arquivo JS não module no dom.
  * Loads a non module JS file.
  * @param {string} src URL to the JS file
  * @param {Object} attrs additional optional attributes
@@ -335,6 +380,11 @@ function createOptimizedPicture(
  * Set template (page structure) and theme (page styles).
  */
 function decorateTemplateAndTheme() {
+  /**
+   * Adiciona classes a um elemento.
+   * @param {Element} element  O elemento ao qual as classes serão adicionadas.
+   * @param {string} classes  Classes separadas por vírgula a serem adicionadas.
+   */
   const addClasses = (element, classes) => {
     classes.split(',').forEach((c) => {
       element.classList.add(toClassName(c.trim()));
@@ -365,17 +415,32 @@ function wrapTextNodes(block) {
     'H5',
     'H6',
   ];
-
+  /* O que é um bloco?
+  <bloco>
+    <div>  <- row
+      <div> <- blockColumn
+      <div> <- blockColumn
+  </bloco>
+  */
+  /**
+   * Função que envolve o conteúdo de um elemento em uma tag <p>.
+   * Ou seja, uma tag <p> entre os filhos do elemento e o próprio elemento.
+   * @param {Element} el Elemento cujo conteúdo será envolvido em uma tag <p>
+   */
   const wrap = (el) => {
     const wrapper = document.createElement('p');
     wrapper.append(...el.childNodes);
     el.append(wrapper);
   };
 
+  // para cada div que é filha direta da div que é filha direta do bloco
   block.querySelectorAll(':scope > div > div').forEach((blockColumn) => {
+    // Só se o blockColumn tiver filhos
     if (blockColumn.hasChildNodes()) {
+      // Verifica se já existe um wrapper válido
       const hasWrapper = !!blockColumn.firstElementChild
         && validWrappers.some((tagName) => blockColumn.firstElementChild.tagName === tagName);
+      // Se não tiver, envolve o conteúdo em uma tag <p>
       if (!hasWrapper) {
         wrap(blockColumn);
       } else if (
@@ -507,12 +572,18 @@ function decorateSections(main) {
  */
 function buildBlock(blockName, content) {
   const table = Array.isArray(content) ? content : [[content]];
+  // Cria um elemento que representará o bloco.
   const blockEl = document.createElement('div');
   // build image block nested div structure
+  // Insere uma classe com o nome do bloco.
   blockEl.classList.add(blockName);
   table.forEach((row) => {
+    // Para cada chave do conteúdo, cria uma div
     const rowEl = document.createElement('div');
     row.forEach((col) => {
+      // Para cada valor do conteúdo, cria uma div
+      // Se o valor for uma string, insere a string como HTML
+      // Se o valor for um elemento, insere o elemento como filho
       const colEl = document.createElement('div');
       const vals = col.elems ? col.elems : [col];
       vals.forEach((val) => {
